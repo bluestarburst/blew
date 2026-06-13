@@ -287,6 +287,9 @@ define_class!(
             } else {
                 DisconnectCause::AdapterOff
             };
+            if let Some(tx) = inner.connects.take(&id) {
+                let _ = tx.send(Err(BlewError::DisconnectedDuringOperation(id.clone())));
+            }
             inner.emit(CentralEvent::DeviceDisconnected { device_id: id, cause });
         }
 
