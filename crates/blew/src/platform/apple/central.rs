@@ -36,7 +36,7 @@ use objc2_core_bluetooth::{
     CBPeripheral, CBPeripheralDelegate, CBService, CBUUID,
 };
 use objc2_foundation::{
-    NSArray, NSData, NSDictionary, NSError, NSNumber, NSObjectProtocol, NSString,
+    NSArray, NSData, NSDictionary, NSError, NSNumber, NSObjectProtocol, NSString, NSUUID,
 };
 use tokio::runtime::Handle;
 use tokio::sync::{broadcast, oneshot, watch};
@@ -53,6 +53,45 @@ use crate::l2cap::{L2capChannel, types::Psm};
 use crate::platform::apple::helpers::{
     ObjcSend, cbuuid_to_uuid, peripheral_device_id, retain_send, uuid_to_cbuuid,
 };
+
+/// Prefer the exact `CBPeripheral` retained from `didDiscoverPeripheral`.
+/// `retrievePeripheralsWithIdentifiers` is useful for restoration, but it can
+/// return a UUID-known object that is not the current advertising-session
+/// peripheral. First connects should use the object CoreBluetooth just handed
+/// us from the scan callback.
+fn peripheral_for_connect(
+    manager: &CBCentralManager,
+    inner: &CentralInner,
+    device_id: &DeviceId,
+) -> Option<ObjcSend<CBPeripheral>> {
+    if let Some(peripheral) = inner
+        .peripherals
+        .lock()
+        .get(device_id)
+        .map(|p| unsafe { retain_send(&**p) })
+    {
+        return Some(peripheral);
+    }
+
+    let uuid_string = NSString::from_str(device_id.as_str());
+    let Some(ns_uuid) = NSUUID::initWithUUIDString(NSUUID::alloc(), &uuid_string) else {
+        warn!(device_id = %device_id, "invalid peripheral UUID for retrievePeripherals");
+        return None;
+    };
+    let ids = NSArray::from_retained_slice(&[ns_uuid]);
+    let retrieved = unsafe { manager.retrievePeripheralsWithIdentifiers(&ids) };
+    if let Some(peripheral) = retrieved.to_vec().into_iter().next() {
+        let id = peripheral_device_id(&peripheral);
+        let retained = unsafe { retain_send(&*peripheral) };
+        inner
+            .peripherals
+            .lock()
+            .insert(id, unsafe { retain_send(&*peripheral) });
+        return Some(retained);
+    }
+
+    None
+}
 use crate::platform::apple::l2cap::bridge_l2cap_channel;
 use crate::types::{BleDevice, DeviceId};
 use crate::util::BroadcastEventStream;
@@ -633,12 +672,10 @@ impl CentralBackend for AppleCentral {
             let id_for_err = device_id.clone();
             let peripheral_to_cancel;
             let rx = {
-                let peripheral = handle
-                    .inner
-                    .peripherals
-                    .lock()
-                    .get(&device_id)
-                    .map(|p| unsafe { retain_send(&**p) });
+                let peripheral = {
+                    unsafe { handle.manager.stopScan() };
+                    peripheral_for_connect(&handle.manager, &handle.inner, &device_id)
+                };
                 let Some(peripheral) = peripheral else {
                     return Err(BlewError::DeviceNotFound(device_id));
                 };

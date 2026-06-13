@@ -5,6 +5,13 @@ All notable changes to `blew` are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Apple `Central::connect` now prefers the `CBPeripheral` retained from the
+  scan callback and only falls back to `retrievePeripheralsWithIdentifiers`
+  when no scan object is cached. This avoids first-connect attempts against a
+  UUID-known but stale CoreBluetooth object after a fresh discovery.
+
 ## [0.3.0] — 2026-04-22
 
 ### Added

@@ -42,7 +42,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::error::{BlewError, BlewResult};
 use crate::gatt::props::{AttributePermissions, CharacteristicProperties};
@@ -293,7 +293,7 @@ define_class!(
                 return;
             };
             let client_id = central_device_id(central);
-            trace!(client_id = %client_id, %char_uuid, "client subscribed to characteristic");
+            info!(client_id = %client_id, %char_uuid, "central subscribed to characteristic");
             {
                 let mut subs = inner.subscribers.lock();
                 let entry = subs.entry(char_uuid).or_default();
