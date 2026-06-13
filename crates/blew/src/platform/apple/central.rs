@@ -259,7 +259,11 @@ define_class!(
             let id = peripheral_device_id(peripheral);
             debug!(device_id = %id, "device disconnected");
             let inner = self.ivars();
-            inner.peripherals.lock().remove(&id);
+            // Keep the discovered CBPeripheral retained after disconnect so a
+            // caller can reconnect by DeviceId without waiting for another
+            // scan callback. CoreBluetooth suppresses duplicate discoveries by
+            // default, so removing this here can strand reservation-backed
+            // reconnect paths that still have a valid scan hint.
             let cause = if central.state() == CBManagerState::PoweredOn {
                 match error {
                     Some(err) => {
